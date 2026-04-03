@@ -24,6 +24,10 @@ public class ClientHandler implements Runnable {
                 return;
 
             System.out.println("Request: " + requestLine);
+            if (requestLine.startsWith("CONNECT")) {
+                handleHttps(clientIn, clientOut);
+                return;
+            }
 
             String[] parts = requestLine.split(" ");
             String url = parts[1];
@@ -35,8 +39,11 @@ public class ClientHandler implements Runnable {
             BufferedWriter serverOut = new BufferedWriter(
                     new OutputStreamWriter(serverSocket.getOutputStream()));
 
-            serverOut.write("GET / HTTP/1.1\r\n");
-            serverOut.write("Host: " + host + "\r\n");
+            String line;
+            while (!(line = clientIn.readLine()).isEmpty()) {
+                serverOut.write(line + "\r\n");
+            }
+
             serverOut.write("\r\n");
             serverOut.flush();
 
@@ -58,4 +65,16 @@ public class ClientHandler implements Runnable {
             e.printStackTrace();
         }
     }
+
+    private void handleHttps(BufferedReader clientIn, OutputStream clientOut) {
+        try {
+            System.out.println("Handling HTTPS CONNECT");
+
+            String connectLine = ""; // we already read requestLine before
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 }
