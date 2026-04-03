@@ -1,5 +1,5 @@
 package app;
-public class Main{
+public class ProxyServer{
     public static void main(String args[]){
         System.out.println("Hello helios");
     }
