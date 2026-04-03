@@ -1,6 +1,11 @@
 package service;
 
 import security.AccessController;
+import network.ServerConnector;
+import network.StreamForwarder;
+import utils.Logger;
+import utils.Constants;
+
 import java.io.*;
 import java.net.Socket;
 
@@ -17,7 +22,7 @@ public class RequestProcessor {
                 return;
             }
 
-            System.out.println("Processing: " + requestLine);
+            Logger.info("Processing: " + requestLine);
 
             String[] parts = requestLine.split(" ");
             if (parts.length < 2) {
@@ -35,38 +40,51 @@ public class RequestProcessor {
             }
 
         } catch (Exception e) {
-            System.err.println("Processor Error: " + e.getMessage());
+            Logger.error("Processor Error", e);
         }
     }
 
     private void handleHttp(String requestLine, String url, InputStream clientIn, OutputStream clientOut, Socket clientSocket) throws Exception {
-        String host = url.replace("http://", "").split("/")[0];
+        String host = url.replace("http://", "").split("/")[0].trim();
+
+     
+        if (host.contains(":")) {
+            host = host.split(":")[0];
+        }
+     
 
         if (AccessController.isBlocked(host)) {
+            Logger.warn("BLOCKED HTTP access to: " + host);
             sendForbidden(clientOut);
             clientSocket.close();
             return;
         }
 
-        Socket serverSocket = new Socket(host, 80);
+        Socket serverSocket = ServerConnector.connect(host, 80);
         BufferedWriter serverOut = new BufferedWriter(new OutputStreamWriter(serverSocket.getOutputStream()));
         
         serverOut.write(requestLine + "\r\n");
 
         String line;
-        while (!(line = readLine(clientIn)).isEmpty()) {
+        while ((line = readLine(clientIn)) != null && !line.isEmpty()) {
+            if (line.toLowerCase().startsWith("proxy-connection:") || line.toLowerCase().startsWith("connection:")) {
+                continue;
+            }
             serverOut.write(line + "\r\n");
         }
+        
+        serverOut.write("Connection: close\r\n");
         serverOut.write("\r\n");
         serverOut.flush();
 
         InputStream serverIn = serverSocket.getInputStream();
-        byte[] buffer = new byte[4096];
+        byte[] buffer = new byte[Constants.BUFFER_SIZE];
         int bytesRead;
+        
         while ((bytesRead = serverIn.read(buffer)) != -1) {
             clientOut.write(buffer, 0, bytesRead);
+            clientOut.flush(); 
         }
-        clientOut.flush();
 
         serverSocket.close();
         clientSocket.close();
@@ -74,35 +92,34 @@ public class RequestProcessor {
 
     private void handleHttps(String requestLine, String hostPort, InputStream clientIn, OutputStream clientOut, Socket clientSocket) throws Exception {
         String[] split = hostPort.split(":");
-        String host = split[0];
-        int port = (split.length > 1) ? Integer.parseInt(split[1]) : 443;
+        String host = split[0].trim();
+        int port = (split.length > 1) ? Integer.parseInt(split[1].trim()) : 443;
 
         if (AccessController.isBlocked(host)) {
+            Logger.warn("BLOCKED HTTPS access to: " + host);
+            sendForbidden(clientOut);
             clientSocket.close(); 
             return;
         }
 
         String line;
-        while (!(line = readLine(clientIn)).isEmpty()) {
+        while ((line = readLine(clientIn)) != null && !line.isEmpty()) {
         }
 
-        Socket serverSocket = new Socket(host, port);
+        Socket serverSocket = ServerConnector.connect(host, port);
         
-        String connectionEstablished = "HTTP/1.1 200 Connection Established\r\n\r\n";
-        clientOut.write(connectionEstablished.getBytes());
+        clientOut.write(Constants.HTTP_200_CONNECTION_ESTABLISHED.getBytes());
         clientOut.flush();
 
-        Thread clientToServer = new Thread(new network.StreamForwarder(clientIn, serverSocket.getOutputStream()));
-        Thread serverToClient = new Thread(new network.StreamForwarder(serverSocket.getInputStream(), clientOut));
+        Thread clientToServer = new Thread(new StreamForwarder(clientIn, serverSocket.getOutputStream()));
+        Thread serverToClient = new Thread(new StreamForwarder(serverSocket.getInputStream(), clientOut));
 
         clientToServer.start();
         serverToClient.start();
     }
 
     private void sendForbidden(OutputStream out) throws IOException {
-        String response = "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\n\r\n" +
-                          "<h1>403 Forbidden</h1><p>Website Blocked by Proxy Access Controller.</p>";
-        out.write(response.getBytes());
+        out.write(Constants.HTTP_403_FORBIDDEN.getBytes());
         out.flush();
     }
 
