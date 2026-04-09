@@ -2,7 +2,7 @@ package utils;
 
 public class Constants {
     
-    public static final int DEFAULT_PORT = 8080;
+    public static final int DEFAULT_PORT = 8000;
     
     public static final int BUFFER_SIZE = 4096;
     
